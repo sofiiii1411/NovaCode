@@ -1,0 +1,49 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner() {
+      return isAuthenticated() && 
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'owner';
+    }
+    
+    function isStaffOrOwner() {
+      return isAuthenticated() && (
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['staff', 'owner']
+      );
+    }
+    
+    // User profile collection
+    match /users/{userId} {
+      // Users can read own profile; Staff and Owners can read all
+      allow read: if isAuthenticated() && (request.auth.uid == userId || isStaffOrOwner());
+      
+      // New user registration: default to 'customer' role
+      allow create: if isAuthenticated() && request.auth.uid == userId && (
+        request.resource.data.role == 'customer' || isOwner()
+      );
+      
+      // Prevent users from elevating their own role
+      allow update: if isAuthenticated() && (
+        isOwner() || 
+        (request.auth.uid == userId && request.resource.data.role == resource.data.role)
+      );
+      
+      allow delete: if isOwner();
+    }
+    
+    // QR and NFC platform collections
+    match /qr_codes/{qrId} {
+      allow read, write: if isAuthenticated();
+    }
+    
+    match /nfc_tags/{tagId} {
+      allow read, write: if isAuthenticated();
+    }
+  }
+}
